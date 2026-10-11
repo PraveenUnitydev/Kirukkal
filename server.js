@@ -112,7 +112,7 @@ const broadcast = (room, msg, exceptId) => {
 function publicRoom(room) {
   return {
     code: room.code, state: room.state, hostId: room.hostId, settings: room.settings,
-    round: room.round, drawerId: room.drawerId, up: room.up || 0, down: room.down || 0,
+    round: room.round, drawerId: room.drawerId, up: room.up || 0, down: room.down || 0, clue: room.clue || null,
     wordLength: room.word ? graphemes(room.word).length : 0,
     players: [...room.players.values()].map((p) => ({
       id: p.id, name: p.name, avatar: p.avatar, score: p.score, guessed: p.guessed,
@@ -179,7 +179,7 @@ function nextTurn(room) {
   room.drawerId = room.queue.shift();
   room.state = 'choosing';
   room.word = null; room.wordG = []; room.revealed = new Set(); room.history = [];
-  room.guessCount = 0; room.votes = new Map(); room.up = 0; room.down = 0; room.announced = new Set();
+  room.clue = null; room.guessCount = 0; room.votes = new Map(); room.up = 0; room.down = 0; room.announced = new Set();
   for (const p of room.players.values()) { p.guessed = false; p.gain = 0; }
   room.entries = pickWords(room, 3);
   const options = room.entries.map((e) => e.word);
@@ -411,16 +411,21 @@ wss.on('connection', (ws) => {
         p.lastQuick = now;
         broadcast(room, { type: 'quick', id: d.id, pid: p.id, name: p.name, avatar: p.avatar }); break;
       }
+      case 'clue': {
+        // the drawer may reveal the word's category (once per drawing): word / movie / character
+        if (!isDrawer || room.clue || !room.entry) return;
+        room.clue = room.entry.cat;
+        broadcast(room, { type: 'system', kind: 'clue', name: p.name, cat: room.clue });
+        pushRoom(room); break;
+      }
       case 'vote': {
         // 👍 / 👎 on the drawing: ONE vote per player per drawing, final. Not for your own drawing.
-        // A like is worth +10 to the drawer; a dislike costs nothing.
+        // Votes are chat-only: they never change anyone's score.
         if (!['drawing', 'turn_end'].includes(room.state) || !room.drawerId || p.id === room.drawerId) return;
         const v = m.v === 1 ? 1 : m.v === -1 ? -1 : 0;
         if (!v || room.votes.has(p.id)) return;
         room.votes.set(p.id, v);
         if (v === 1) room.up++; else room.down++;
-        const drawer = room.players.get(room.drawerId);
-        if (drawer && v === 1) { drawer.score += 10; drawer.gain += 10; }
         broadcast(room, { type: 'system', kind: v === 1 ? 'like' : 'dislike', name: p.name });
         pushRoom(room); break;
       }

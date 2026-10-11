@@ -81,22 +81,31 @@ function bot() {
       const word = options[0];
 
       if (turn === 0) {
-        // likes / dislikes: one vote each, +10 per like to the drawer, not for the drawer's own drawing
+        // likes / dislikes: one vote each, not for the drawer's own drawing
         const before = a.room.players.find((p) => p.id === drawer.id).score;
         guessers[0].send({ type: 'vote', v: 1 }); guessers[1].send({ type: 'vote', v: -1 });
         await a.until(() => a.room.up === 1 && a.room.down === 1);
         guessers[0].send({ type: 'vote', v: 1 }); drawer.send({ type: 'vote', v: 1 }); await sleep(120);
         assert.strictEqual(a.room.up, 1, 'repeat / own votes ignored');
-        assert.strictEqual(a.room.players.find((p) => p.id === drawer.id).score, before + 10);
+        assert.strictEqual(a.room.players.find((p) => p.id === drawer.id).score, before, 'likes never change the score');
         // votes are final: changing or withdrawing is ignored
         guessers[1].send({ type: 'vote', v: 1 }); guessers[0].send({ type: 'vote', v: 0 }); guessers[0].send({ type: 'vote', v: -1 });
         await sleep(150);
         assert.strictEqual(a.room.up, 1); assert.strictEqual(a.room.down, 1, 'one vote per player per drawing');
-        assert.strictEqual(a.room.players.find((p) => p.id === drawer.id).score, before + 10, 'like bonus counted once');
+        assert.strictEqual(a.room.players.find((p) => p.id === drawer.id).score, before, 'likes never change the score');
         await a.until(() => a.msgs.some((m) => m.type === 'system' && m.kind === 'like') && a.msgs.some((m) => m.type === 'system' && m.kind === 'dislike'));
         assert.strictEqual(a.msgs.filter((m) => m.type === 'system' && m.kind === 'like').length, 1);
         assert.strictEqual(a.msgs.filter((m) => m.type === 'system' && m.kind === 'dislike').length, 1);
-        console.log('✓ like / dislike (announced in chat)');
+        console.log('✓ like / dislike (announced in chat, no score effect)');
+        // clue: only the drawer, once, reveals the category
+        assert.strictEqual(a.room.clue, null);
+        guessers[0].send({ type: 'clue' }); await sleep(120);
+        assert.strictEqual(a.room.clue, null, 'guessers cannot give clues');
+        drawer.send({ type: 'clue' }); await a.until(() => a.room.clue === 'words');
+        assert.ok(a.msgs.some((m) => m.type === 'system' && m.kind === 'clue' && m.cat === 'words'));
+        drawer.send({ type: 'clue' }); await sleep(120);
+        assert.strictEqual(a.msgs.filter((m) => m.type === 'system' && m.kind === 'clue').length, 1, 'one clue per drawing');
+        console.log('✓ drawer clue (category) once per drawing');
       }
       // English guessing is case / space insensitive; a Tamil-script guess is just a wrong guess
       guessers[0].send({ type: 'chat', text: 'தமிழ்' }); await sleep(80);

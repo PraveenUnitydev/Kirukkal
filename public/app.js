@@ -7,6 +7,13 @@
   const SIZES = [3, 6, 12, 22];
   const W = 800, H = 600;
 
+  // category clue shown to guessers (the drawer taps 💡)
+  const clueText = (cat) => {
+    const en = room && room.settings.lang === 'en';
+    if (cat === 'movies') return 'a Tamil movie';
+    if (cat === 'characters') return 'a Tamil movie character';
+    return en ? 'a normal English word' : 'a Tamil word';
+  };
   const TXT = {
     round: (r, n) => `Round ${r}/${n}`,
     drawing: (n) => `${n} is drawing…`,
@@ -31,6 +38,7 @@
       dislike: (n) => `${n} disliked the drawing 👎`,
       correct: (n) => `${n} guessed the word! 🎉`,
       close: () => 'So close! 🔥',
+      clue: (n, cat) => `💡 Clue from ${n}: it's ${clueText(cat)}`,
     },
   };
 
@@ -237,7 +245,14 @@
     for (const p of room.players) { prevScores.set(p.id, p.score); if (p.guessed) prevGuessed.add(p.id); }
   }
 
+  function renderClue() {
+    const c = $('#clue'), on = !!room.clue && (room.state === 'drawing' || room.state === 'turn_end');
+    c.classList.toggle('hidden', !on);
+    c.textContent = on ? '💡 ' + clueText(room.clue).replace(/^a /, 'A ') : '';
+    const b = $('#btn-clue'); b.disabled = !!room.clue; b.classList.toggle('used', !!room.clue);
+  }
   function renderWord() {
+    renderClue();
     const w = $('#word'), label = $('#word-label');
     w.textContent = ''; w.lang = isEn() ? 'en' : 'ta';
     const drawerName = (room.players.find((p) => p.id === room.drawerId) || {}).name || '';
@@ -573,6 +588,7 @@
   }
   $('#tools').querySelectorAll('.tool').forEach((b) => (b.onclick = () => setTool(b.dataset.tool)));
   $('#btn-undo').onclick = () => { if (!isDrawer()) return; history.pop(); redraw(); send({ type: 'undo' }); };
+  $('#btn-clue').onclick = () => { if (isDrawer() && !room.clue) send({ type: 'clue' }); };
   $('#btn-clear').onclick = () => { if (!isDrawer()) return; history = []; redraw(); send({ type: 'clear' }); };
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'z' && isDrawer()) { e.preventDefault(); $('#btn-undo').click(); }
@@ -640,6 +656,7 @@
       case 'leave': J.play('leave'); break;
       case 'kicked': J.play('boing'); break;
       case 'host': J.play('ding'); break;
+      case 'clue': J.play('ding'); break;
     }
   }
   function onState(prev) {
@@ -693,7 +710,7 @@
       }
       case 'system': {
         const f = TXT.sys[m.kind]; if (!f) break;
-        addChat(m.kind === 'correct' ? 'good' : m.kind === 'close' ? 'warn' : m.kind === 'like' ? 'like' : m.kind === 'dislike' ? 'dislike' : 'sys', [document.createTextNode(f(m.name))]);
+        addChat(m.kind === 'clue' ? 'cluemsg' : m.kind === 'correct' ? 'good' : m.kind === 'close' ? 'warn' : m.kind === 'like' ? 'like' : m.kind === 'dislike' ? 'dislike' : 'sys', [document.createTextNode(f(m.name, m.cat))]);
         sysFx(m);
         break;
       }

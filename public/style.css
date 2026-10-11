@@ -462,3 +462,8 @@ canvas.drawable { cursor: crosshair; }
   .quick-btn { width: 42px; height: 42px; }
   .caption { bottom: 48px; }
 }
+
+.clue { display: inline-block; margin-top: 2px; padding: 1px 10px; border-radius: 999px; background: #fff3c4; color: #5a4300; font-size: .75rem; font-weight: 700; }
+.clue.hidden { display: none; }
+@media (max-width: 820px) { .clue { background: rgba(255,243,196,.95); font-size: .68rem; } }
+.msg.cluemsg { background: #fff3c4; color: #5a4300; }
