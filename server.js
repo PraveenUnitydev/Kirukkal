@@ -301,6 +301,9 @@ const num = (v, lo, hi) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) :
 function joinRoom(ws, room, name, avatar, cid) {
   if (cid && room.banned.has(cid)) return send(ws, { type: 'error', code: 'banned' });
   if (room.players.size >= MAX_PLAYERS) return send(ws, { type: 'error', code: 'full' });
+  const nameKey = (s) => s.normalize('NFC').toLowerCase().replace(/\s+/g, '');
+  const k = nameKey(name);
+  for (const q of room.players.values()) if (nameKey(q.name) === k) return send(ws, { type: 'error', code: 'name_taken' });
   const id = rid();
   const p = { id, ws, cid, name, avatar: Number.isInteger(avatar) ? avatar : 0, score: 0, guessed: false, gain: 0 };
   room.players.set(id, p);
@@ -409,18 +412,16 @@ wss.on('connection', (ws) => {
         broadcast(room, { type: 'quick', id: d.id, pid: p.id, name: p.name, avatar: p.avatar }); break;
       }
       case 'vote': {
-        // 👍 / 👎 on the drawing (not for your own drawing); a like is worth +10 to the drawer
+        // 👍 / 👎 on the drawing: ONE vote per player per drawing, final. Not for your own drawing.
+        // A like is worth +10 to the drawer; a dislike costs nothing.
         if (!['drawing', 'turn_end'].includes(room.state) || !room.drawerId || p.id === room.drawerId) return;
         const v = m.v === 1 ? 1 : m.v === -1 ? -1 : 0;
-        const old = room.votes.get(p.id) || 0;
-        if (v === old) return;
-        if (v) room.votes.set(p.id, v); else room.votes.delete(p.id);
-        room.up += (v === 1) - (old === 1); room.down += (v === -1) - (old === -1);
+        if (!v || room.votes.has(p.id)) return;
+        room.votes.set(p.id, v);
+        if (v === 1) room.up++; else room.down++;
         const drawer = room.players.get(room.drawerId);
-        if (drawer) { const d = 10 * ((v === 1) - (old === 1)); drawer.score += d; drawer.gain += d; }
-        // announce it in the chat (once per voter per kind per turn, so toggling can't spam)
-        const tag = p.id + ':' + v;
-        if (v && !room.announced.has(tag)) { room.announced.add(tag); broadcast(room, { type: 'system', kind: v === 1 ? 'like' : 'dislike', name: p.name }); }
+        if (drawer && v === 1) { drawer.score += 10; drawer.gain += 10; }
+        broadcast(room, { type: 'system', kind: v === 1 ? 'like' : 'dislike', name: p.name });
         pushRoom(room); break;
       }
       case 'kick': {

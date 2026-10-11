@@ -37,7 +37,7 @@
   // English copy for the landing page and lobby (the in-game screen stays Tamil).
   const EN = {
     errors: {
-      name: 'Please enter your name', no_room: 'Room not found', full: 'This room is full',
+      name: 'Please enter your name', name_taken: 'That name is already taken in this room. Pick another one.', no_room: 'Room not found', full: 'This room is full',
       need_players: 'Need at least 2 players to start', conn: 'Connection lost. Please try again.',
       banned: 'The host removed you from this room', kicked: 'The host removed you from the room',
     },
@@ -280,10 +280,10 @@
     if (!on) return;
     $('#up-n').textContent = room.up; $('#down-n').textContent = room.down;
     const mine = room.drawerId === myId;
-    $('#vote-up').disabled = $('#vote-down').disabled = mine;
+    $('#vote-up').disabled = $('#vote-down').disabled = mine || myVote !== 0; // one final vote per drawing
     $('#vote-up').classList.toggle('on', myVote === 1); $('#vote-down').classList.toggle('on', myVote === -1);
   }
-  const castVote = (v) => { myVote = myVote === v ? 0 : v; send({ type: 'vote', v: myVote }); renderVotes(); };
+  const castVote = (v) => { if (myVote) return; myVote = v; send({ type: 'vote', v }); renderVotes(); };
   $('#vote-up').onclick = () => castVote(1);
   $('#vote-down').onclick = () => castVote(-1);
 

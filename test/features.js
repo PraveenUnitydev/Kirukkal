@@ -40,6 +40,17 @@ function bot() {
     c.send({ type: 'join', code, name: 'C', avatar: 2, cid: 'cid-c' });
     await a.until(() => a.room.players.length === 3);
 
+    // duplicate names are rejected (case / spacing insensitive)
+    for (const dup of ['a', ' A ', 'b']) {
+      const d = bot(); await d.open;
+      d.send({ type: 'join', code, name: dup, avatar: 3, cid: 'cid-d' });
+      await d.until(() => d.msgs.some((m) => m.type === 'error' && m.code === 'name_taken'));
+      d.ws.close();
+    }
+    await sleep(100);
+    assert.strictEqual(a.room.players.length, 3, 'duplicate name did not join');
+    console.log('✓ duplicate names rejected');
+
     // settings: defaults, host-only, validation
     assert.strictEqual(a.room.settings.lang, 'ta');
     assert.deepStrictEqual(a.room.settings.cats, ['words', 'movies', 'characters']);
@@ -77,11 +88,14 @@ function bot() {
         guessers[0].send({ type: 'vote', v: 1 }); drawer.send({ type: 'vote', v: 1 }); await sleep(120);
         assert.strictEqual(a.room.up, 1, 'repeat / own votes ignored');
         assert.strictEqual(a.room.players.find((p) => p.id === drawer.id).score, before + 10);
-        guessers[1].send({ type: 'vote', v: 1 }); await a.until(() => a.room.up === 2 && a.room.down === 0);
-        guessers[0].send({ type: 'vote', v: 0 }); await a.until(() => a.room.up === 1);
+        // votes are final: changing or withdrawing is ignored
+        guessers[1].send({ type: 'vote', v: 1 }); guessers[0].send({ type: 'vote', v: 0 }); guessers[0].send({ type: 'vote', v: -1 });
+        await sleep(150);
+        assert.strictEqual(a.room.up, 1); assert.strictEqual(a.room.down, 1, 'one vote per player per drawing');
+        assert.strictEqual(a.room.players.find((p) => p.id === drawer.id).score, before + 10, 'like bonus counted once');
         await a.until(() => a.msgs.some((m) => m.type === 'system' && m.kind === 'like') && a.msgs.some((m) => m.type === 'system' && m.kind === 'dislike'));
-        const likes = a.msgs.filter((m) => m.type === 'system' && m.kind === 'like').length;
-        assert.strictEqual(likes, 2, 'each voter is announced once in chat (re-liking does not spam)');
+        assert.strictEqual(a.msgs.filter((m) => m.type === 'system' && m.kind === 'like').length, 1);
+        assert.strictEqual(a.msgs.filter((m) => m.type === 'system' && m.kind === 'dislike').length, 1);
         console.log('✓ like / dislike (announced in chat)');
       }
       // English guessing is case / space insensitive; a Tamil-script guess is just a wrong guess
