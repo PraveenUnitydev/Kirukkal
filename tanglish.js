@@ -69,9 +69,10 @@ const hasTamil = (s) => /[஀-௿]/.test(s);
 const hasLatin = (s) => /[a-z]/i.test(s);
 
 // All skeletons a Roman-letter guess may match for this Tamil word.
-function candidates(word) {
+function candidates(word, alts = []) {
   const set = new Set([skeleton(toRoman(word))]);
   for (const a of ALIASES[word] || []) set.add(skeleton(a));
+  for (const a of alts) set.add(skeleton(a)); // e.g. the English title of a Tamil movie
   return [...set].filter(Boolean);
 }
 

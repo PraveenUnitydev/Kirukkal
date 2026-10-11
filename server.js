@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const WORDS = require('./words');
+const MAX_KICKED = 200;
 const tanglish = require('./tanglish');
 
 const PORT = process.env.PORT || 3000;
@@ -68,7 +69,7 @@ const broadcast = (room, msg, exceptId) => {
 function publicRoom(room) {
   return {
     code: room.code, state: room.state, hostId: room.hostId, settings: room.settings,
-    round: room.round, drawerId: room.drawerId,
+    round: room.round, drawerId: room.drawerId, up: room.up || 0, down: room.down || 0,
     wordLength: room.word ? graphemes(room.word).length : 0,
     players: [...room.players.values()].map((p) => ({
       id: p.id, name: p.name, avatar: p.avatar, score: p.score, guessed: p.guessed,
@@ -100,19 +101,27 @@ function resetToLobby(room) {
 }
 
 function startGame(room) {
-  room.round = 0; room.queue = []; room.usedWords = new Set();
+  room.round = 0; room.queue = [];
   for (const p of room.players.values()) { p.score = 0; p.guessed = false; p.gain = 0; }
   nextTurn(room);
 }
 
+// Words for the drawer to choose from: never one already played in this room, and (as long as the
+// pool allows) not one that was just offered either, so the same words don't keep coming back.
 function pickWords(room, n) {
-  const pool = WORDS.filter((w) => !room.usedWords.has(w));
-  const src = pool.length >= n ? pool : WORDS;
+  const { lang, difficulty, cats } = room.settings;
+  const all = WORDS.pool(lang, difficulty, cats);
+  const key = (e) => e.word.toLowerCase();
+  let pool = all.filter((e) => !room.usedWords.has(key(e)) && !room.offered.has(key(e)));
+  if (pool.length < n) pool = all.filter((e) => !room.usedWords.has(key(e)));
+  if (pool.length < n) { room.usedWords.clear(); room.offered.clear(); pool = all; }
   const out = [];
-  while (out.length < n) {
-    const w = src[crypto.randomInt(src.length)];
-    if (!out.includes(w)) out.push(w);
+  while (out.length < n && out.length < pool.length) {
+    const e = pool[crypto.randomInt(pool.length)];
+    if (!out.includes(e)) out.push(e);
   }
+  for (const e of out) room.offered.add(key(e));
+  if (room.offered.size > Math.max(30, all.length / 3)) room.offered.clear();
   return out;
 }
 
@@ -127,9 +136,10 @@ function nextTurn(room) {
   room.drawerId = room.queue.shift();
   room.state = 'choosing';
   room.word = null; room.wordG = []; room.revealed = new Set(); room.history = [];
-  room.guessCount = 0;
+  room.guessCount = 0; room.votes = new Map(); room.up = 0; room.down = 0;
   for (const p of room.players.values()) { p.guessed = false; p.gain = 0; }
-  const options = pickWords(room, 3);
+  room.entries = pickWords(room, 3);
+  const options = room.entries.map((e) => e.word);
   room.options = options;
   pushRoom(room);
   broadcast(room, { type: 'redraw', history: [] });
@@ -142,8 +152,11 @@ function chooseWord(room, word) {
   if (room.state !== 'choosing' || !room.options.includes(word)) return;
   stopTimers(room);
   room.state = 'drawing';
-  room.word = word; room.wordG = graphemes(word); room.usedWords.add(word);
-  room.cands = tanglish.candidates(word); // accepted Roman-letter (Tanglish) skeletons
+  const entry = room.entries.find((e) => e.word === word);
+  room.entry = entry;
+  room.word = word; room.wordG = graphemes(word); room.usedWords.add(word.toLowerCase());
+  // accepted Roman-letter (Tanglish) skeletons; Tamil spellings of movie titles also work in English games
+  room.cands = entry.ta ? tanglish.candidates(entry.ta, [...entry.alts, ...(room.settings.lang === 'en' ? [word] : [])]) : [];
   const T = room.settings.drawTime;
   room.endsAt = Date.now() + T * 1000;
   pushRoom(room);
@@ -193,22 +206,32 @@ function allGuessed(room) {
   return guessers.length > 0 && guessers.every((p) => p.guessed);
 }
 
+const enNorm = (s) => String(s).normalize('NFC').toLowerCase().replace(/[^a-z0-9]/g, '');
+
 function handleGuess(room, p, text, raw) {
-  const target = norm(room.word);
-  const guess = norm(text);
-  // Tamil script is compared letter-by-letter; Roman letters (Tanglish) are compared phonetically.
   const rank = { wrong: 0, close: 1, correct: 2 };
   let verdict = 'wrong';
   const consider = (v) => { if (rank[v] > rank[verdict]) verdict = v; };
-  if (tanglish.hasTamil(text)) {
-    const a = graphemes(guess), b = graphemes(target);
-    consider(guess === target ? 'correct' : (b.length >= 3 && editDistance(a, b) === 1 ? 'close' : 'wrong'));
-  } else if (tanglish.hasLatin(text)) {
-    consider(tanglish.judge(text, room.cands));
+  if (room.settings.lang === 'en') {
+    // English game: plain letters, ignoring case, spaces and punctuation
+    const t = enNorm(room.word), g = enNorm(text);
+    if (g) consider(g === t ? 'correct' : (t.length >= 4 && editDistance([...g], [...t]) === 1 ? 'close' : 'wrong'));
+    // Tamil movie titles are also accepted the Tanglish way (ghilli / gilli)
+    if (room.cands.length && tanglish.hasLatin(text)) consider(tanglish.judge(text, room.cands));
+  } else {
+    const target = norm(room.word);
+    const guess = norm(text);
+    // Tamil script is compared letter-by-letter; Roman letters (Tanglish) are compared phonetically.
+    if (tanglish.hasTamil(text)) {
+      const a = graphemes(guess), b = graphemes(target);
+      consider(guess === target ? 'correct' : (b.length >= 3 && editDistance(a, b) === 1 ? 'close' : 'wrong'));
+    } else if (tanglish.hasLatin(text)) {
+      consider(tanglish.judge(text, room.cands));
+    }
+    // The client also sends the English letters the player actually typed (before live conversion to
+    // Tamil), so a converter spelling quirk (e.g. த vs ட) can never cost them the point.
+    if (raw && !tanglish.hasTamil(raw) && tanglish.hasLatin(raw)) consider(tanglish.judge(raw, room.cands));
   }
-  // The client also sends the English letters the player actually typed (before live conversion to
-  // Tamil), so a converter spelling quirk (e.g. த vs ட) can never cost them the point.
-  if (raw && !tanglish.hasTamil(raw) && tanglish.hasLatin(raw)) consider(tanglish.judge(raw, room.cands));
   if (verdict === 'correct') {
     const T = room.settings.drawTime;
     const left = Math.max(0, (room.endsAt - Date.now()) / 1000);
@@ -232,10 +255,11 @@ const cleanName = (s) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 16
 const okColor = (c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c);
 const num = (v, lo, hi) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : null);
 
-function joinRoom(ws, room, name, avatar) {
+function joinRoom(ws, room, name, avatar, cid) {
+  if (cid && room.banned.has(cid)) return send(ws, { type: 'error', code: 'banned' });
   if (room.players.size >= MAX_PLAYERS) return send(ws, { type: 'error', code: 'full' });
   const id = rid();
-  const p = { id, ws, name, avatar: Number.isInteger(avatar) ? avatar : 0, score: 0, guessed: false, gain: 0 };
+  const p = { id, ws, cid, name, avatar: Number.isInteger(avatar) ? avatar : 0, score: 0, guessed: false, gain: 0 };
   room.players.set(id, p);
   ws.pid = id; ws.room = room;
   if (!room.hostId) room.hostId = id;
@@ -251,7 +275,7 @@ function joinRoom(ws, room, name, avatar) {
   }
 }
 
-function leaveRoom(ws) {
+function leaveRoom(ws, kind = 'leave') {
   const room = ws.room; if (!room) return;
   const id = ws.pid;
   const p = room.players.get(id); if (!p) return;
@@ -262,7 +286,7 @@ function leaveRoom(ws) {
     room.hostId = room.players.keys().next().value;
     broadcast(room, { type: 'system', kind: 'host', name: room.players.get(room.hostId).name });
   }
-  broadcast(room, { type: 'system', kind: 'leave', name: p.name });
+  broadcast(room, { type: 'system', kind, name: p.name });
   const inGame = ['choosing', 'drawing', 'turn_end'].includes(room.state);
   if (inGame && room.players.size < 2) return resetToLobby(room);
   if (room.drawerId === id) {
@@ -286,20 +310,21 @@ wss.on('connection', (ws) => {
     if (!room) {
       if (m.type === 'create' || m.type === 'join') {
         const name = cleanName(m.name);
+        const cid = typeof m.cid === 'string' ? m.cid.slice(0, 40) : '';
         if (!name) return send(ws, { type: 'error', code: 'name' });
         if (m.type === 'create') {
           const r = {
             code: newCode(), players: new Map(), hostId: null, state: 'lobby',
-            settings: { rounds: 3, drawTime: 80 }, round: 0, drawerId: null,
+            settings: { rounds: 3, drawTime: 80, lang: 'ta', difficulty: 'mixed', cats: ['words', 'movies', 'characters'] }, round: 0, drawerId: null,
             word: null, wordG: [], revealed: new Set(), queue: [], history: [], usedWords: new Set(),
-            options: [], guessCount: 0,
+            options: [], entries: [], offered: new Set(), banned: new Set(), votes: new Map(), up: 0, down: 0, guessCount: 0,
           };
           rooms.set(r.code, r);
-          joinRoom(ws, r, name, m.avatar);
+          joinRoom(ws, r, name, m.avatar, cid);
         } else {
           const r = rooms.get(String(m.code || '').toUpperCase().trim());
           if (!r) return send(ws, { type: 'error', code: 'no_room' });
-          joinRoom(ws, r, name, m.avatar);
+          joinRoom(ws, r, name, m.avatar, cid);
         }
       }
       return;
@@ -314,6 +339,12 @@ wss.on('connection', (ws) => {
         const rounds = num(m.rounds, 1, 10), drawTime = num(m.drawTime, 20, 240);
         if (rounds) room.settings.rounds = Math.round(rounds);
         if (drawTime) room.settings.drawTime = Math.round(drawTime);
+        if (m.lang === 'ta' || m.lang === 'en') room.settings.lang = m.lang;
+        if (m.difficulty === 'mixed' || WORDS.TIERS.includes(m.difficulty)) room.settings.difficulty = m.difficulty;
+        if (Array.isArray(m.cats)) {
+          const cats = WORDS.CATS.filter((c) => m.cats.includes(c));
+          if (cats.length) room.settings.cats = cats;
+        }
         pushRoom(room); break;
       }
       case 'start':
@@ -326,6 +357,33 @@ wss.on('connection', (ws) => {
       case 'choose':
         if (room.state === 'choosing' && room.drawerId === p.id && room.options[m.index]) chooseWord(room, room.options[m.index]);
         break;
+      case 'vote': {
+        // 👍 / 👎 on the drawing (not for your own drawing); a like is worth +10 to the drawer
+        if (!['drawing', 'turn_end'].includes(room.state) || !room.drawerId || p.id === room.drawerId) return;
+        const v = m.v === 1 ? 1 : m.v === -1 ? -1 : 0;
+        const old = room.votes.get(p.id) || 0;
+        if (v === old) return;
+        if (v) room.votes.set(p.id, v); else room.votes.delete(p.id);
+        room.up += (v === 1) - (old === 1); room.down += (v === -1) - (old === -1);
+        const drawer = room.players.get(room.drawerId);
+        if (drawer) { const d = 10 * ((v === 1) - (old === 1)); drawer.score += d; drawer.gain += d; }
+        pushRoom(room); break;
+      }
+      case 'kick': {
+        if (p.id !== room.hostId || m.id === p.id) return;
+        const t = room.players.get(m.id); if (!t) return;
+        if (t.cid && room.banned.size < MAX_KICKED) room.banned.add(t.cid);
+        send(t.ws, { type: 'kicked' });
+        leaveRoom(t.ws, 'kicked');
+        t.ws.close();
+        break;
+      }
+      case 'host': {
+        if (p.id !== room.hostId || m.id === p.id || !room.players.has(m.id)) return;
+        room.hostId = m.id;
+        broadcast(room, { type: 'system', kind: 'host', name: room.players.get(m.id).name });
+        pushRoom(room); break;
+      }
       case 'chat': {
         const text = String(m.text || '').slice(0, 100).trim(); if (!text) return;
         const raw = typeof m.raw === 'string' ? m.raw.slice(0, 100).trim() : '';

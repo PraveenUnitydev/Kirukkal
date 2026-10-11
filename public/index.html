@@ -57,6 +57,15 @@
       <label>Draw time
         <select id="set-time" class="input"></select>
       </label>
+      <label>Language
+        <select id="set-lang" class="input"></select>
+      </label>
+      <label>Difficulty
+        <select id="set-diff" class="input"></select>
+      </label>
+      <div class="cats-wrap">Word types
+        <div id="set-cats" class="cats"></div>
+      </div>
     </div>
 
     <button id="btn-start" class="btn btn-primary">▶ Start game</button>
@@ -86,6 +95,10 @@
     <section class="board">
       <div class="canvas-wrap">
         <canvas id="canvas" width="800" height="600"></canvas>
+        <div id="votes" class="votes hidden">
+          <button type="button" id="vote-up" class="vote" aria-label="Like this drawing">👍 <span id="up-n">0</span></button>
+          <button type="button" id="vote-down" class="vote" aria-label="Dislike this drawing">👎 <span id="down-n">0</span></button>
+        </div>
         <div id="overlay" class="overlay hidden"></div>
       </div>
       <div id="toolbar" class="toolbar hidden">
@@ -114,6 +127,16 @@
     </aside>
   </section>
 </main>
+
+<!-- host actions for a player -->
+<div id="player-menu" class="modal hidden" role="dialog" aria-modal="true">
+  <div class="sheet">
+    <div id="pm-title" class="pm-title"></div>
+    <button type="button" id="pm-host" class="btn btn-secondary">👑 Make host</button>
+    <button type="button" id="pm-kick" class="btn btn-danger">🚫 Kick from room</button>
+    <button type="button" id="pm-cancel" class="btn btn-ghost">Cancel</button>
+  </div>
+</div>
 
 <div id="toast" class="toast hidden"></div>
 <script src="translit.js"></script>

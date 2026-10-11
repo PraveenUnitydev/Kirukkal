@@ -1,6 +1,7 @@
 // Unit tests: typical Tanglish spellings must match, near-misses must not.
 const assert = require('assert');
-const WORDS = require('../words');
+const BANK = require('../words');
+const WORDS = BANK.pool('ta', 'mixed', BANK.CATS);
 const { candidates, judge, toRoman, skeleton } = require('../tanglish');
 
 // [tamil word, spellings players might type, spellings that must NOT be accepted]
@@ -54,13 +55,25 @@ assert.strictEqual(judge('123 !!', candidates('மரம்')), 'wrong');
 
 // every word in the bank yields a usable skeleton and accepts its own transliteration
 const seen = new Map();
-for (const w of WORDS) {
+const names = new Set();
+for (const e of WORDS) {
+  const w = e.word;
+  assert.ok(!names.has(w), `duplicate word ${w}`); names.add(w);
   const sk = skeleton(toRoman(w));
   assert.ok(sk.length >= 1, `empty skeleton for ${w}`);
-  assert.strictEqual(judge(toRoman(w), candidates(w)), 'correct', `self-match failed for ${w}`);
+  const cands = candidates(w, e.alts);
+  assert.strictEqual(judge(toRoman(w), cands), 'correct', `self-match failed for ${w}`);
+  for (const a of e.alts) assert.strictEqual(judge(a, cands), 'correct', `English title "${a}" must match ${w}`);
   if (seen.has(sk)) console.warn(`note: "${w}" and "${seen.get(sk)}" share skeleton "${sk}"`);
   seen.set(sk, w);
 }
+// word bank sanity: enough variety per language / difficulty, no duplicates, no Tamil in the English list
+for (const lang of ['ta', 'en']) {
+  const all = BANK.pool(lang, 'mixed', BANK.CATS).map((e) => e.word.toLowerCase());
+  assert.strictEqual(new Set(all).size, all.length, `${lang} bank has duplicates`);
+  for (const t of BANK.TIERS) assert.ok(BANK.pool(lang, t, BANK.CATS).length >= 60, `${lang}/${t} too small`);
+}
+for (const e of BANK.pool('en', 'mixed', ['words'])) assert.ok(!/[஀-௿]/.test(e.word), `Tamil in English list: ${e.word}`);
 
-console.log(`Tanglish spellings checked: ${ok} ok, ${fail} failed; ${WORDS.length} bank words self-match`);
+console.log(`Tanglish spellings checked: ${ok} ok, ${fail} failed; ${WORDS.length} Tamil bank entries self-match`);
 process.exitCode = fail ? 1 : 0;
