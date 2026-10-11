@@ -117,7 +117,7 @@ h3 { font-family: var(--font-head); margin: 18px 0 10px; }
 /* Game */
 #screen-game { display: flex; flex-direction: column; gap: 12px; padding: 12px; max-width: 1280px; margin: 0 auto; }
 .topbar {
-  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px;
+  display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 12px;
   background: var(--card); border-radius: 20px; padding: 10px 16px; box-shadow: 0 8px 30px rgba(20, 8, 60, .25);
 }
 .chip { background: #efe9ff; color: var(--secondary); font-weight: 700; border-radius: 999px; padding: 6px 14px; white-space: nowrap; }
@@ -264,7 +264,7 @@ canvas.drawable { cursor: crosshair; }
   .panel h4 { display: none; }
 
   .topbar {
-    grid-area: top; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; border-radius: 0; box-shadow: none;
+    grid-area: top; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 8px; border-radius: 0; box-shadow: none;
     padding: calc(6px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) 6px calc(10px + env(safe-area-inset-left));
     background: linear-gradient(135deg, var(--bg1), var(--bg2));
   }
@@ -372,3 +372,66 @@ canvas.drawable { cursor: crosshair; }
   .room-code { font-size: 2rem; letter-spacing: 5px; }
   .lobby-head .btn-secondary { padding: 10px 14px; font-size: .9rem; }
 }
+
+/* ================= game juice ================= */
+.fx { background: transparent; position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 80; }
+.snd {
+  flex: none; width: 34px; height: 34px; border-radius: 50%; border: 0; cursor: pointer; font-size: 1rem; line-height: 1;
+  background: rgba(255, 255, 255, .18); color: #fff; display: grid; place-items: center; touch-action: manipulation;
+}
+.snd-corner { position: absolute; top: 14px; right: 14px; background: #f4f0ff; color: var(--ink); z-index: 2; }
+.lobby, .landing { position: relative; }
+.lobby-head .snd-corner { top: 0; right: 0; }
+.lobby-head { padding-right: 0; }
+
+.floaty { position: fixed; z-index: 90; pointer-events: none; font-family: var(--font-head); font-weight: 800; font-size: 1.3rem; text-shadow: 0 2px 0 rgba(0, 0, 0, .25); }
+.floaty.plus { color: #1fb36b; -webkit-text-stroke: 1px #fff; }
+.flyer { position: fixed; z-index: 90; pointer-events: none; font-size: 1.6rem; }
+.flyer.big { font-size: 2.2rem; }
+.splat { position: fixed; z-index: 90; pointer-events: none; font-size: 3.4rem; }
+
+.mascot { position: absolute; left: 8px; bottom: 6px; z-index: 6; display: flex; align-items: flex-end; gap: 6px; pointer-events: none; transform: translateY(130%); }
+.mascot.show { animation: mascotIn 2.3s ease both; }
+.m-face { font-size: 2.4rem; line-height: 1; filter: drop-shadow(0 3px 4px rgba(0, 0, 0, .3)); transform-origin: 50% 100%; animation: wiggle .5s ease-in-out 3; }
+.m-say {
+  position: relative; background: #fff; color: var(--ink); font-weight: 800; font-size: .85rem; border-radius: 14px; padding: 6px 10px; margin-bottom: 14px;
+  box-shadow: 0 4px 14px rgba(20, 8, 60, .3); max-width: 190px; line-height: 1.2;
+}
+.m-say::before { content: ''; position: absolute; left: -6px; bottom: 8px; border: 6px solid transparent; border-right-color: #fff; border-left: 0; }
+@keyframes mascotIn { 0% { transform: translateY(130%); } 12% { transform: translateY(-8px); } 18% { transform: translateY(0); } 85% { transform: translateY(0); } 100% { transform: translateY(130%); } }
+@keyframes wiggle { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-12deg); } 75% { transform: rotate(12deg); } }
+
+.shake { animation: shake .42s ease; }
+@keyframes shake { 10%, 90% { transform: translateX(-2px); } 20%, 80% { transform: translateX(4px); } 30%, 50%, 70% { transform: translateX(-7px); } 40%, 60% { transform: translateX(7px); } }
+.canvas-wrap.panic { animation: panic .5s ease-in-out infinite alternate; }
+@keyframes panic { to { box-shadow: 0 0 0 4px rgba(211, 38, 63, .75), 0 8px 30px rgba(20, 8, 60, .3); } }
+
+.players li.hop .av { animation: hop .7s ease; }
+@keyframes hop { 0% { transform: scale(1); } 30% { transform: translateY(-10px) scale(1.5) rotate(-12deg); } 60% { transform: translateY(0) scale(.9) rotate(8deg); } 100% { transform: scale(1); } }
+.players li.guessed .av { animation: bob 1.8s ease-in-out infinite; }
+.players li.drawing .av { animation: scribble 1.1s ease-in-out infinite; }
+@keyframes bob { 50% { transform: translateY(-2px) rotate(4deg); } }
+@keyframes scribble { 0%, 100% { transform: rotate(-8deg); } 50% { transform: rotate(8deg) translateX(2px); } }
+
+.msg.like { background: #e6f9ef; color: #0d7a47; font-weight: 700; }
+.msg.dislike { background: #ffe8e6; color: #b3261e; font-weight: 700; }
+
+.ltr { display: inline-block; animation: letterIn .55s cubic-bezier(.2, 1.6, .4, 1) both; animation-delay: calc(var(--i) * 70ms); }
+@keyframes letterIn { from { transform: translateY(-40px) rotate(-30deg) scale(.3); opacity: 0; } to { transform: none; opacity: 1; } }
+.choice { animation: choiceIn .45s cubic-bezier(.2, 1.6, .4, 1) both; }
+.choice:nth-child(2) { animation-delay: .08s; } .choice:nth-child(3) { animation-delay: .16s; }
+.choice:hover { animation: wiggle .4s ease-in-out; }
+@keyframes choiceIn { from { transform: scale(.2) rotate(-15deg); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.podium .step { transform-origin: 50% 100%; animation: rise .7s cubic-bezier(.2, 1.4, .4, 1) both; }
+.podium .step.p2 { animation-delay: .15s; } .podium .step.p1 { animation-delay: .45s; } .podium .step.p3 { animation-delay: .3s; }
+@keyframes rise { from { transform: scaleY(.1); opacity: 0; } to { transform: none; opacity: 1; } }
+.podium .step.champ .av { animation: dance .9s ease-in-out .9s infinite; font-size: 2.6rem; }
+.podium .step.champ .medal { animation: wiggle 1s ease-in-out 1s infinite; }
+@keyframes dance { 0%, 100% { transform: rotate(-14deg) translateY(0); } 25% { transform: rotate(0) translateY(-12px) scale(1.15); } 50% { transform: rotate(14deg) translateY(0); } 75% { transform: rotate(0) translateY(-8px); } }
+
+.logo span { display: inline-block; animation: logoBounce 2.4s ease-in-out infinite; }
+.logo span:last-child { animation-delay: .3s; }
+@keyframes logoBounce { 0%, 100% { transform: translateY(0) rotate(-1.5deg); } 50% { transform: translateY(-6px) rotate(1.5deg); } }
+.avatar-opt.selected { animation: hop .6s ease; }
+.vote.on { animation: hop .5s ease; }

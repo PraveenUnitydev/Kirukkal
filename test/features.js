@@ -79,7 +79,10 @@ function bot() {
         assert.strictEqual(a.room.players.find((p) => p.id === drawer.id).score, before + 10);
         guessers[1].send({ type: 'vote', v: 1 }); await a.until(() => a.room.up === 2 && a.room.down === 0);
         guessers[0].send({ type: 'vote', v: 0 }); await a.until(() => a.room.up === 1);
-        console.log('✓ like / dislike');
+        await a.until(() => a.msgs.some((m) => m.type === 'system' && m.kind === 'like') && a.msgs.some((m) => m.type === 'system' && m.kind === 'dislike'));
+        const likes = a.msgs.filter((m) => m.type === 'system' && m.kind === 'like').length;
+        assert.strictEqual(likes, 2, 'each voter is announced once in chat (re-liking does not spam)');
+        console.log('✓ like / dislike (announced in chat)');
       }
       // English guessing is case / space insensitive; a Tamil-script guess is just a wrong guess
       guessers[0].send({ type: 'chat', text: 'தமிழ்' }); await sleep(80);
@@ -91,7 +94,12 @@ function bot() {
     }
     console.log('✓ English game: easy words only, case-insensitive guesses, no repeats within', seenWords.size, 'offers');
 
-    // Tamil movie in an English game is accepted both ways (title and Tanglish)
+    // Tamil movies & characters exist in English games too (English titles)
+    const enMov = BANK.pool('en', 'mixed', ['movies', 'characters']);
+    assert.ok(enMov.length > 100 && enMov.some((e) => e.word === 'Jailer') && enMov.some((e) => e.word === 'Chitti'));
+    assert.ok(enMov.every((e) => !/[஀-௿]/.test(e.word)));
+    assert.deepStrictEqual(BANK.pool('en', 'easy', ['movies']).slice(0, 2).map((e) => e.word), ['Leo', 'Master']);
+    console.log('✓ English games include Tamil movies & characters:', enMov.length, 'titles');
     await a.until(() => ['choosing', 'over'].includes(a.room.state));
 
     // host controls

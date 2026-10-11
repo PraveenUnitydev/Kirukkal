@@ -136,7 +136,7 @@ function nextTurn(room) {
   room.drawerId = room.queue.shift();
   room.state = 'choosing';
   room.word = null; room.wordG = []; room.revealed = new Set(); room.history = [];
-  room.guessCount = 0; room.votes = new Map(); room.up = 0; room.down = 0;
+  room.guessCount = 0; room.votes = new Map(); room.up = 0; room.down = 0; room.announced = new Set();
   for (const p of room.players.values()) { p.guessed = false; p.gain = 0; }
   room.entries = pickWords(room, 3);
   const options = room.entries.map((e) => e.word);
@@ -317,7 +317,7 @@ wss.on('connection', (ws) => {
             code: newCode(), players: new Map(), hostId: null, state: 'lobby',
             settings: { rounds: 3, drawTime: 80, lang: 'ta', difficulty: 'mixed', cats: ['words', 'movies', 'characters'] }, round: 0, drawerId: null,
             word: null, wordG: [], revealed: new Set(), queue: [], history: [], usedWords: new Set(),
-            options: [], entries: [], offered: new Set(), banned: new Set(), votes: new Map(), up: 0, down: 0, guessCount: 0,
+            options: [], entries: [], offered: new Set(), banned: new Set(), votes: new Map(), announced: new Set(), up: 0, down: 0, guessCount: 0,
           };
           rooms.set(r.code, r);
           joinRoom(ws, r, name, m.avatar, cid);
@@ -367,6 +367,9 @@ wss.on('connection', (ws) => {
         room.up += (v === 1) - (old === 1); room.down += (v === -1) - (old === -1);
         const drawer = room.players.get(room.drawerId);
         if (drawer) { const d = 10 * ((v === 1) - (old === 1)); drawer.score += d; drawer.gain += d; }
+        // announce it in the chat (once per voter per kind per turn, so toggling can't spam)
+        const tag = p.id + ':' + v;
+        if (v && !room.announced.has(tag)) { room.announced.add(tag); broadcast(room, { type: 'system', kind: v === 1 ? 'like' : 'dislike', name: p.name }); }
         pushRoom(room); break;
       }
       case 'kick': {

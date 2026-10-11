@@ -27,6 +27,8 @@
       leave: (n) => `${n} left`,
       host: (n) => `${n} is now the host 👑`,
       kicked: (n) => `${n} was removed from the room`,
+      like: (n) => `${n} liked the drawing 👍`,
+      dislike: (n) => `${n} disliked the drawing 👎🍅`,
       correct: (n) => `${n} guessed the word! 🎉`,
       close: () => 'So close! 🔥',
     },
@@ -58,6 +60,19 @@
   let avatar = Number(localStorage.getItem('k_avatar') || 0) % AVATARS.length;
   let pendingWords = null;
   let lastState = null, timerMax = 0, myVote = 0;
+  const J = window.Juice || { play() {}, confetti() {}, rain() {}, floatText() {}, fling() {}, mascot() {}, shake() {}, pick: (a) => a[0] };
+  const wrapEl = document.querySelector('.canvas-wrap');
+  const prevScores = new Map(), prevGuessed = new Set();
+  const seg = new Intl.Segmenter('ta', { granularity: 'grapheme' });
+  const SAY = {
+    mine: ['Semma da! 🔥', 'Mass! You got it!', 'Vera level! 🚀', 'Thalaiva! 🙌', 'Kalakkita! ✨'],
+    other: ['Someone cracked it! 👀', 'Hurry up da! ⏰', 'Aiyo, they got it!', 'Ayyo, too slow!'],
+    close: ['Aiyo, so close! 🤏', 'Almost da! 🔥', 'One letter off!'],
+    nobody: ['Nobody got it 🤡', 'Aiyo paavam… 😭', 'Enna da idhu?!'],
+    draw: ['Draw like a legend! 🎨', 'Kirukku time! ✏️', 'Mass drawing please!'],
+    guess: ['Guess fast da! ⚡', 'Eyes on the canvas 👁️', 'Think Tanglish! 🧠'],
+    pick: ['Your turn! Pick one 👉', 'Choose wisely, thalaiva!'],
+  };
 
   const ctx = $('#canvas').getContext('2d', { willReadFrequently: true });
   const canvas = $('#canvas');
@@ -210,7 +225,8 @@
     const ul = $('#players'); ul.textContent = '';
     const sorted = [...room.players].sort((a, b) => b.score - a.score);
     sorted.forEach((p, i) => {
-      const li = el('li', (p.guessed ? 'guessed ' : '') + (p.id === room.drawerId ? 'drawing ' : '') + (room.hostId === myId && p.id !== myId ? 'tappable' : ''));
+      const li = el('li', (p.guessed && !prevGuessed.has(p.id) ? 'hop ' : '') + (p.guessed ? 'guessed ' : '') + (p.id === room.drawerId ? 'drawing ' : '') + (room.hostId === myId && p.id !== myId ? 'tappable' : ''));
+      li.dataset.id = p.id;
       if (room.hostId === myId && p.id !== myId) li.onclick = () => openMenu(p);
       const info = el('div', 'info');
       info.append(el('div', 'nm', (p.id === room.hostId ? '👑 ' : '') + p.name + (p.id === myId ? ' ' + TXT.you : '')), el('div', 'sc', p.score + ' pts'));
@@ -219,6 +235,15 @@
       else if (p.guessed) li.append(el('span', 'mark', '✅'));
       ul.append(li);
     });
+    // floating "+120" over whoever just scored
+    if (room.state === 'drawing' || room.state === 'turn_end') {
+      for (const p of room.players) {
+        const before = prevScores.get(p.id);
+        if (before != null && p.score > before) { const li = ul.querySelector(`li[data-id="${p.id}"]`); J.floatText(li, '+' + (p.score - before), 'plus'); }
+      }
+    }
+    prevScores.clear(); prevGuessed.clear();
+    for (const p of room.players) { prevScores.set(p.id, p.score); if (p.guessed) prevGuessed.add(p.id); }
   }
 
   function renderWord() {
@@ -247,6 +272,7 @@
     $('#timer-num').textContent = left;
     t.style.setProperty('--p', timerMax ? Math.max(0, Math.min(100, (left / timerMax) * 100)) : 100);
     t.classList.toggle('low', !!room && room.state === 'drawing' && left <= 10);
+    wrapEl.classList.toggle('panic', !!room && room.state === 'drawing' && left <= 10 && left > 0);
   }
 
   function setOverlay(html, full) {
@@ -312,7 +338,11 @@
 
   function showTurnEnd(m) {
     const box = el('div', 'ov-box');
-    box.append(el('div', '', TXT.answer), el('div', 'big', m.word));
+    const big = el('div', 'big');
+    [...seg.segment(m.word)].forEach((x, i) => { const sp = el('span', 'ltr', x.segment); sp.style.setProperty('--i', i); big.append(sp); });
+    box.append(el('div', '', TXT.answer), big);
+    const got = m.gains.some((g) => g.gain > 0 && g.id !== room.drawerId);
+    if (got) J.play('end'); else { J.play('sad'); J.mascot(J.pick(SAY.nobody), true); }
     const ul = el('ul', 'gains');
     for (const g of [...m.gains].sort((a, b) => b.gain - a.gain)) {
       const li = el('li');
@@ -333,6 +363,7 @@
     order.forEach((p, i) => {
       if (!p) return;
       const st = el('div', 'step ' + cls[i]);
+      if (i === 1) st.classList.add('champ');
       st.append(el('div', 'medal', medal[i]), el('div', 'av', AVATARS[p.avatar] || ''), el('div', 'nm', p.name), el('div', 'pts', p.score));
       pod.append(st);
     });
@@ -556,6 +587,30 @@
     if ((e.ctrlKey || e.metaKey) && e.key === 'z' && isDrawer()) { e.preventDefault(); $('#btn-undo').click(); }
   });
 
+  // ---------- juice ----------
+  function sysFx(m) {
+    switch (m.kind) {
+      case 'correct':
+        if (me() && me().name === m.name) { J.play('win'); J.confetti(wrapEl, 70, '⭐'); J.mascot(J.pick(SAY.mine), true); }
+        else { J.play('ding'); J.mascot(J.pick(SAY.other)); }
+        break;
+      case 'close': J.play('close'); J.shake(chatInput); J.mascot(J.pick(SAY.close)); break;
+      case 'like': J.play('like'); J.fling('like', wrapEl); break;
+      case 'dislike': J.fling('dislike', wrapEl); if (isDrawer()) J.play('sad'); break;
+      case 'join': J.play('join'); break;
+      case 'leave': J.play('leave'); break;
+      case 'kicked': J.play('boing'); break;
+      case 'host': J.play('ding'); break;
+    }
+  }
+  function onState(prev) {
+    if (room.state === 'choosing' && room.drawerId === myId) { J.play('whoosh'); J.mascot(J.pick(SAY.pick), true); }
+    else if (room.state === 'drawing') { J.play('start'); J.mascot(J.pick(room.drawerId === myId ? SAY.draw : SAY.guess), true); }
+    else if (room.state === 'over') { J.play('fanfare'); J.rain(4000, '🎉'); }
+  }
+  // every button gets a little click
+  document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('button'); if (b && !b.classList.contains('snd') && !b.classList.contains('vote')) J.play('click'); });
+
   // ---------- messages ----------
   function onMsg(m) {
     switch (m.type) {
@@ -567,6 +622,7 @@
       case 'room': {
         const prev = lastState;
         room = m.room; lastState = room.state;
+        if (room.state !== prev) onState(prev);
         if (menuTarget && (room.hostId !== myId || !room.players.some((q) => q.id === menuTarget))) closeMenu();
         if (room.state !== prev) timerMax = 0;
         if (room.state === 'lobby') { show('lobby'); renderLobby(); setOverlay(null); hint = []; }
@@ -579,7 +635,10 @@
         }
         break;
       }
-      case 'tick': left = m.left; if (room) renderTimer(); break;
+      case 'tick':
+        left = m.left; if (room) renderTimer();
+        if (room && room.state === 'drawing' && left > 0 && left <= 5) J.play('tick');
+        break;
       case 'choose_words':
         pendingWords = m.words;
         if (room && room.state === 'choosing') showChoose(m.words);
@@ -594,7 +653,8 @@
       }
       case 'system': {
         const f = TXT.sys[m.kind]; if (!f) break;
-        addChat(m.kind === 'correct' ? 'good' : m.kind === 'close' ? 'warn' : 'sys', [document.createTextNode(f(m.name))]);
+        addChat(m.kind === 'correct' ? 'good' : m.kind === 'close' ? 'warn' : m.kind === 'like' ? 'like' : m.kind === 'dislike' ? 'dislike' : 'sys', [document.createTextNode(f(m.name))]);
+        sysFx(m);
         break;
       }
       case 'error': {
