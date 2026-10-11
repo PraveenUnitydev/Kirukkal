@@ -1,4 +1,4 @@
-// Game juice: synthesised sound effects (no audio files) + confetti, flying emoji and a chaotic mascot.
+// Game juice: synthesised sound effects (no audio files) + confetti and floating emoji.
 (() => {
   const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   let ctx = null, master = null, muted = false;
@@ -54,7 +54,6 @@
     like: () => { tone(500, 0.12, { type: 'sine', to: 950, vol: 0.35 }); tone(1250, 0.12, { type: 'sine', vol: 0.2, at: 0.1 }); },
     // sad trombone: wah wah wah waaaah
     sad: () => [[392, 0.28], [370, 0.28], [349, 0.28], [311, 0.8]].forEach(([f, d], i) => tone(f, d, { type: 'sawtooth', vol: 0.22, at: i * 0.32, vib: i === 3 ? 7 : 0, to: i === 3 ? 262 : null })),
-    splat: () => { noise(0.22, { freq: 1200, to: 120, vol: 0.55 }); tone(140, 0.14, { type: 'sine', to: 55, vol: 0.5 }); },
     boing: () => tone(180, 0.55, { type: 'sine', to: 700, vol: 0.4, vib: 22 }),
     end: () => notes([G5, E5], { d: 0.14, gap: 0.12, type: 'sine', vol: 0.35 }),
     fanfare: () => { notes([C5, C5, C5, G5], { d: 0.16, gap: 0.14, type: 'square', vol: 0.18 }); [C5, E5, G5, C6].forEach((f) => tone(f, 0.9, { type: 'triangle', vol: 0.22, at: 0.62 })); },
@@ -102,44 +101,19 @@
       { transform: 'translate(-50%,-70px) scale(1)', opacity: 0 }], { duration: 1300, easing: 'ease-out' }).onfinish = () => d.remove();
   }
 
-  // 👍 float up from the corner, 🍅 get thrown at the drawing and splat
+  // 👍 ❤️ ⭐ 🔥 float up from the corner of the drawing
   function fling(kind, wrap) {
-    if (reduce || !wrap) return;
+    if (reduce || !wrap || kind !== 'like') return;
     const r = wrap.getBoundingClientRect();
-    if (kind === 'like') {
-      for (let i = 0; i < 4; i++) {
-        const e = document.createElement('div'); e.className = 'flyer'; e.textContent = ['👍', '❤️', '⭐', '🔥'][(Math.random() * 4) | 0];
-        e.style.left = r.right - 50 - Math.random() * 90 + 'px'; e.style.top = r.bottom - 30 + 'px'; document.body.append(e);
-        const dx = (Math.random() - 0.5) * 80;
-        e.animate([{ transform: 'translate(0,0) scale(.5)', opacity: 0 }, { transform: `translate(${dx / 2}px,-40px) scale(1.2)`, opacity: 1, offset: 0.2 },
-          { transform: `translate(${dx}px,-${r.height * 0.8}px) scale(1)`, opacity: 0 }], { duration: 1400 + Math.random() * 500, delay: i * 90, easing: 'ease-out', fill: 'backwards' }).onfinish = () => e.remove();
-      }
-    } else {
-      const e = document.createElement('div'); e.className = 'flyer big'; e.textContent = Math.random() < 0.8 ? '🍅' : '🥚';
-      const fromLeft = Math.random() < 0.5, tx = r.left + r.width * (0.2 + Math.random() * 0.6), ty = r.top + r.height * (0.2 + Math.random() * 0.6);
-      const sx = fromLeft ? r.left - 40 : r.right + 40, sy = r.bottom + 20;
-      e.style.left = sx + 'px'; e.style.top = sy + 'px'; document.body.append(e);
-      e.animate([{ transform: 'translate(0,0) rotate(0)' }, { transform: `translate(${(tx - sx) / 2}px,${(ty - sy) / 2 - 60}px) rotate(300deg)`, offset: 0.5 },
-        { transform: `translate(${tx - sx}px,${ty - sy}px) rotate(640deg) scale(1.3)` }], { duration: 520, easing: 'ease-in' }).onfinish = () => {
-        e.remove(); play('splat');
-        const s = document.createElement('div'); s.className = 'splat'; s.textContent = e.textContent === '🍅' ? '💥' : '🍳'; s.style.left = tx + 'px'; s.style.top = ty + 'px'; document.body.append(s);
-        s.animate([{ transform: 'translate(-50%,-50%) scale(.3)', opacity: 1 }, { transform: 'translate(-50%,-50%) scale(1.6)', opacity: 1, offset: 0.25 },
-          { transform: 'translate(-50%,-30%) scale(1.5)', opacity: 0 }], { duration: 1500, easing: 'ease-out' }).onfinish = () => s.remove();
-      };
+    for (let i = 0; i < 4; i++) {
+      const e = document.createElement('div'); e.className = 'flyer'; e.textContent = ['👍', '❤️', '⭐', '🔥'][(Math.random() * 4) | 0];
+      e.style.left = r.right - 50 - Math.random() * 90 + 'px'; e.style.top = r.bottom - 30 + 'px'; document.body.append(e);
+      const dx = (Math.random() - 0.5) * 80;
+      e.animate([{ transform: 'translate(0,0) scale(.5)', opacity: 0 }, { transform: `translate(${dx / 2}px,-40px) scale(1.2)`, opacity: 1, offset: 0.2 },
+        { transform: `translate(${dx}px,-${r.height * 0.8}px) scale(1)`, opacity: 0 }], { duration: 1400 + Math.random() * 500, delay: i * 90, easing: 'ease-out', fill: 'backwards' }).onfinish = () => e.remove();
     }
   }
 
-  // the mascot pops up in the corner of the canvas and says something silly
-  const CAST = ['🦜', '🐒', '🐓', '🐘', '🐯', '🦆', '🐢', '🐮'];
-  let mascotT = 0, mascotAt = 0;
-  function mascot(text, force) {
-    const m = document.getElementById('mascot'); if (!m || reduce) return;
-    const now = Date.now(); if (!force && now - mascotAt < 1400) return; mascotAt = now;
-    m.querySelector('.m-face').textContent = CAST[(Math.random() * CAST.length) | 0];
-    m.querySelector('.m-say').textContent = text;
-    m.classList.remove('show'); void m.offsetWidth; m.classList.add('show');
-    clearTimeout(mascotT); mascotT = setTimeout(() => m.classList.remove('show'), 2300);
-  }
   const pick = (a) => a[(Math.random() * a.length) | 0];
   function shake(el) { if (!el || reduce) return; el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); setTimeout(() => el.classList.remove('shake'), 450); }
 
@@ -149,5 +123,17 @@
   document.querySelectorAll('.snd').forEach((b) => b.addEventListener('click', () => setMuted(!muted)));
   paintMute();
 
-  window.Juice = { play, confetti, rain, floatText, fling, mascot, shake, pick, reduce };
+  // dialogue clips (your own sound files); one at a time, respects the mute button
+  const clips = new Map(); let nowPlaying = null;
+  function preload(url) { if (!clips.has(url)) { const a = new Audio(url); a.preload = 'auto'; clips.set(url, a); } return clips.get(url); }
+  function playFile(url) {
+    if (muted || !url) return;
+    try {
+      if (nowPlaying) { nowPlaying.pause(); nowPlaying.currentTime = 0; }
+      const a = preload(url); a.currentTime = 0; nowPlaying = a;
+      const p = a.play(); if (p && p.catch) p.catch(() => {});
+    } catch { /* ignore */ }
+  }
+
+  window.Juice = { play, confetti, rain, floatText, fling, shake, pick, reduce, playFile, preload, isMuted: () => muted };
 })();

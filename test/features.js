@@ -127,6 +127,19 @@ function bot() {
     await d.until(() => d.room && d.room.players.length === 3);
     console.log('✓ kick + ban');
 
+    // quick dialogues: list comes from dialogues.json, clients can only send ids, per-player cooldown
+    const list = await new Promise((res, rej) => require('http').get(`http://localhost:${PORT}/api/dialogues`, (r) => {
+      let b = ''; r.on('data', (x) => (b += x)); r.on('end', () => res(JSON.parse(b)));
+    }).on('error', rej));
+    assert.ok(list.dialogues.length >= 1 && list.dialogues[0].id && list.dialogues[0].text, 'dialogue list served');
+    assert.ok(list.dialogues.every((d) => d.sound === '' || /\.(mp3|ogg|wav|m4a)$/i.test(d.sound)));
+    const qid = list.dialogues[0].id;
+    d.send({ type: 'quick', id: 'does-not-exist' }); d.send({ type: 'quick', id: qid }); d.send({ type: 'quick', id: qid });
+    await b.until(() => b.msgs.some((m) => m.type === 'quick' && m.id === qid && m.name === 'D'));
+    await sleep(150);
+    assert.strictEqual(b.msgs.filter((m) => m.type === 'quick').length, 1, 'unknown id and cooldown-spam ignored');
+    console.log('✓ quick dialogues');
+
     // Tamil game: movies & characters appear, with the English title accepted
     b.send({ type: 'settings', lang: 'ta', difficulty: 'mixed', cats: ['movies'], rounds: 1, drawTime: 30 });
     await b.until(() => b.room.settings.lang === 'ta' && b.room.settings.cats.join() === 'movies');

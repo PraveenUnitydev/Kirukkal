@@ -1,0 +1,8 @@
+{
+  "cooldownMs": 2500,
+  "dialogues": [
+    { "id": "sample1", "emoji": "🎬", "text": "Sample dialogue 1 — edit dialogues.json", "sound": "sounds/sample1.mp3" },
+    { "id": "sample2", "emoji": "🔥", "text": "Sample dialogue 2", "sound": "sounds/sample2.mp3" },
+    { "id": "sample3", "emoji": "😂", "text": "Sample dialogue 3 (no sound)" }
+  ]
+}

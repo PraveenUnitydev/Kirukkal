@@ -19,17 +19,60 @@ const MIME = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml',
   '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json',
+  '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.opus': 'audio/ogg', '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.webm': 'audio/webm',
 };
+
+// ---------- quick dialogues ----------
+// Edit dialogues.json (no restart needed) to change the list; put sound files under public/sounds/.
+const DIALOGUE_FILE = process.env.KIRUKKAL_DIALOGUES || path.join(__dirname, 'dialogues.json');
+const SOUND_RE = /^[\w][\w\-. /]*\.(mp3|ogg|oga|opus|wav|m4a|aac|webm)$/i;
+const dlg = { mtime: -1, cooldownMs: 2000, list: [] };
+function loadDialogues() {
+  try {
+    const st = fs.statSync(DIALOGUE_FILE);
+    if (st.mtimeMs !== dlg.mtime) {
+      const raw = JSON.parse(fs.readFileSync(DIALOGUE_FILE, 'utf8'));
+      const seen = new Set();
+      dlg.list = (Array.isArray(raw.dialogues) ? raw.dialogues : []).map((d) => ({
+        id: String(d && d.id || '').slice(0, 40), text: String(d && d.text || '').trim().slice(0, 120),
+        emoji: d && d.emoji ? [...String(d.emoji)].slice(0, 2).join('') : '',
+        sound: d && typeof d.sound === 'string' && SOUND_RE.test(d.sound) && !d.sound.includes('..') ? d.sound.replace(/^\/+/, '') : '',
+      })).filter((d) => d.id && d.text && !seen.has(d.id) && seen.add(d.id));
+      dlg.cooldownMs = Math.min(15000, Math.max(0, Number(raw.cooldownMs) || 2000));
+      dlg.mtime = st.mtimeMs;
+    }
+  } catch (e) { if (dlg.mtime !== -2) console.warn('dialogues.json:', e.message); dlg.mtime = -2; dlg.list = []; }
+  return dlg;
+}
+// only advertise a sound once the file really exists in public/
+const withSound = (d) => ({ ...d, sound: d.sound && fs.existsSync(path.join(PUBLIC, d.sound)) ? d.sound : '' });
 
 const server = http.createServer((req, res) => {
   let url = decodeURIComponent(req.url.split('?')[0]);
+  if (url === '/api/dialogues') {
+    const d = loadDialogues();
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify({ cooldownMs: d.cooldownMs, dialogues: d.list.map(withSound) }));
+  }
   if (url === '/') url = '/index.html';
   const file = path.normalize(path.join(PUBLIC, url));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
-  fs.readFile(file, (err, data) => {
-    if (err) { res.writeHead(404); return res.end('Not found'); }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
-    res.end(data);
+  fs.stat(file, (err, st) => {
+    if (err || !st.isFile()) { res.writeHead(404); return res.end('Not found'); }
+    const type = MIME[path.extname(file)] || 'application/octet-stream';
+    // byte ranges: Safari / iOS will not play audio without them
+    const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+    if (m && (m[1] || m[2])) {
+      let start = m[1] ? parseInt(m[1], 10) : st.size - parseInt(m[2], 10);
+      let end = m[1] && m[2] ? parseInt(m[2], 10) : st.size - 1;
+      start = Math.max(0, start); end = Math.min(end, st.size - 1);
+      if (start > end) { res.writeHead(416, { 'Content-Range': `bytes */${st.size}` }); return res.end(); }
+      res.writeHead(206, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${st.size}`, 'Content-Length': end - start + 1 });
+      return fs.createReadStream(file, { start, end }).pipe(res);
+    }
+    res.writeHead(200, { 'Content-Type': type, 'Content-Length': st.size, 'Accept-Ranges': 'bytes' });
+    fs.createReadStream(file).pipe(res);
   });
 });
 
@@ -357,6 +400,14 @@ wss.on('connection', (ws) => {
       case 'choose':
         if (room.state === 'choosing' && room.drawerId === p.id && room.options[m.index]) chooseWord(room, room.options[m.index]);
         break;
+      case 'quick': {
+        // fixed dialogue lines only: clients send an id, the server looks up the text, so nothing can be injected
+        const d = loadDialogues().list.find((x) => x.id === m.id); if (!d) return;
+        const now = Date.now();
+        if (now - (p.lastQuick || 0) < dlg.cooldownMs * 0.8) return;
+        p.lastQuick = now;
+        broadcast(room, { type: 'quick', id: d.id, pid: p.id, name: p.name, avatar: p.avatar }); break;
+      }
       case 'vote': {
         // 👍 / 👎 on the drawing (not for your own drawing); a like is worth +10 to the drawer
         if (!['drawing', 'turn_end'].includes(room.state) || !room.drawerId || p.id === room.drawerId) return;

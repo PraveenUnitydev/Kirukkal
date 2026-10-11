@@ -28,7 +28,7 @@
       host: (n) => `${n} is now the host 👑`,
       kicked: (n) => `${n} was removed from the room`,
       like: (n) => `${n} liked the drawing 👍`,
-      dislike: (n) => `${n} disliked the drawing 👎🍅`,
+      dislike: (n) => `${n} disliked the drawing 👎`,
       correct: (n) => `${n} guessed the word! 🎉`,
       close: () => 'So close! 🔥',
     },
@@ -60,19 +60,10 @@
   let avatar = Number(localStorage.getItem('k_avatar') || 0) % AVATARS.length;
   let pendingWords = null;
   let lastState = null, timerMax = 0, myVote = 0;
-  const J = window.Juice || { play() {}, confetti() {}, rain() {}, floatText() {}, fling() {}, mascot() {}, shake() {}, pick: (a) => a[0] };
+  const J = window.Juice || { play() {}, confetti() {}, rain() {}, floatText() {}, fling() {}, shake() {}, playFile() {}, preload() {}, pick: (a) => a[0] };
   const wrapEl = document.querySelector('.canvas-wrap');
   const prevScores = new Map(), prevGuessed = new Set();
   const seg = new Intl.Segmenter('ta', { granularity: 'grapheme' });
-  const SAY = {
-    mine: ['Semma da! 🔥', 'Mass! You got it!', 'Vera level! 🚀', 'Thalaiva! 🙌', 'Kalakkita! ✨'],
-    other: ['Someone cracked it! 👀', 'Hurry up da! ⏰', 'Aiyo, they got it!', 'Ayyo, too slow!'],
-    close: ['Aiyo, so close! 🤏', 'Almost da! 🔥', 'One letter off!'],
-    nobody: ['Nobody got it 🤡', 'Aiyo paavam… 😭', 'Enna da idhu?!'],
-    draw: ['Draw like a legend! 🎨', 'Kirukku time! ✏️', 'Mass drawing please!'],
-    guess: ['Guess fast da! ⚡', 'Eyes on the canvas 👁️', 'Think Tanglish! 🧠'],
-    pick: ['Your turn! Pick one 👉', 'Choose wisely, thalaiva!'],
-  };
 
   const ctx = $('#canvas').getContext('2d', { willReadFrequently: true });
   const canvas = $('#canvas');
@@ -342,7 +333,7 @@
     [...seg.segment(m.word)].forEach((x, i) => { const sp = el('span', 'ltr', x.segment); sp.style.setProperty('--i', i); big.append(sp); });
     box.append(el('div', '', TXT.answer), big);
     const got = m.gains.some((g) => g.gain > 0 && g.id !== room.drawerId);
-    if (got) J.play('end'); else { J.play('sad'); J.mascot(J.pick(SAY.nobody), true); }
+    J.play(got ? 'end' : 'sad');
     const ul = el('ul', 'gains');
     for (const g of [...m.gains].sort((a, b) => b.gain - a.gain)) {
       const li = el('li');
@@ -587,16 +578,64 @@
     if ((e.ctrlKey || e.metaKey) && e.key === 'z' && isDrawer()) { e.preventDefault(); $('#btn-undo').click(); }
   });
 
+  // ---------- quick dialogues (configured in dialogues.json on the server) ----------
+  let dialogues = [], quickCooldown = 2000, quickReadyAt = 0;
+  const quickBtn = $('#btn-quick'), quickPanel = $('#quick-panel'), quickList = $('#quick-list');
+  async function loadDialogues() {
+    try {
+      const r = await fetch('/api/dialogues', { cache: 'no-store' }); if (!r.ok) return;
+      const d = await r.json();
+      dialogues = Array.isArray(d.dialogues) ? d.dialogues : []; quickCooldown = d.cooldownMs || 2000;
+      for (const q of dialogues) if (q.sound) J.preload('/' + q.sound);
+    } catch { /* offline: no quick chat */ }
+    paintQuick();
+  }
+  function paintQuick() {
+    quickBtn.classList.toggle('hidden', !dialogues.length || !room || room.state === 'lobby');
+    quickList.textContent = '';
+    if (!dialogues.length) { quickList.append(el('div', 'quick-empty', 'No dialogues yet')); return; }
+    for (const q of dialogues) {
+      const b = el('button', 'quick-item'); b.type = 'button';
+      b.append(el('span', 'qe', q.emoji || '🎬'), el('span', 'qt', q.text));
+      if (q.sound) b.append(el('span', 'qs', '🔊'));
+      b.onclick = () => fireQuick(q);
+      quickList.append(b);
+    }
+  }
+  function fireQuick(q) {
+    if (Date.now() < quickReadyAt) { toast('Easy da — wait a moment'); return; }
+    quickReadyAt = Date.now() + quickCooldown;
+    send({ type: 'quick', id: q.id });
+    closeQuick();
+  }
+  const openQuick = () => { if (!dialogues.length) return; quickPanel.classList.remove('hidden'); };
+  const closeQuick = () => quickPanel.classList.add('hidden');
+  quickBtn.onclick = openQuick;
+  $('#quick-close').onclick = closeQuick;
+  quickPanel.addEventListener('click', (e) => { if (e.target === quickPanel) closeQuick(); });
+  // keep the keyboard / input focus when tapping the button
+  quickBtn.addEventListener('pointerdown', (e) => e.preventDefault());
+  let capT = 0;
+  function showQuick(m) {
+    const q = dialogues.find((x) => x.id === m.id); if (!q) return;
+    addChat('quick', [el('b', '', (AVATARS[m.avatar] || '') + ' ' + m.name), el('span', 'qline', (q.emoji || '🎬') + ' ' + q.text)]);
+    const cap = $('#caption'); cap.textContent = '';
+    cap.append(el('span', 'cn', (AVATARS[m.avatar] || '') + ' ' + m.name), el('span', 'cl', (q.emoji || '🎬') + ' ' + q.text));
+    cap.classList.remove('hidden', 'show'); void cap.offsetWidth; cap.classList.add('show');
+    clearTimeout(capT); capT = setTimeout(() => cap.classList.add('hidden'), 3000);
+    if (q.sound) J.playFile('/' + q.sound);
+  }
+
   // ---------- juice ----------
   function sysFx(m) {
     switch (m.kind) {
       case 'correct':
-        if (me() && me().name === m.name) { J.play('win'); J.confetti(wrapEl, 70, '⭐'); J.mascot(J.pick(SAY.mine), true); }
-        else { J.play('ding'); J.mascot(J.pick(SAY.other)); }
+        if (me() && me().name === m.name) { J.play('win'); J.confetti(wrapEl, 70, '⭐'); }
+        else J.play('ding');
         break;
-      case 'close': J.play('close'); J.shake(chatInput); J.mascot(J.pick(SAY.close)); break;
+      case 'close': J.play('close'); J.shake(chatInput); break;
       case 'like': J.play('like'); J.fling('like', wrapEl); break;
-      case 'dislike': J.fling('dislike', wrapEl); if (isDrawer()) J.play('sad'); break;
+      case 'dislike': if (isDrawer()) J.play('sad'); break;
       case 'join': J.play('join'); break;
       case 'leave': J.play('leave'); break;
       case 'kicked': J.play('boing'); break;
@@ -604,8 +643,8 @@
     }
   }
   function onState(prev) {
-    if (room.state === 'choosing' && room.drawerId === myId) { J.play('whoosh'); J.mascot(J.pick(SAY.pick), true); }
-    else if (room.state === 'drawing') { J.play('start'); J.mascot(J.pick(room.drawerId === myId ? SAY.draw : SAY.guess), true); }
+    if (room.state === 'choosing' && room.drawerId === myId) J.play('whoosh');
+    else if (room.state === 'drawing') J.play('start');
     else if (room.state === 'over') { J.play('fanfare'); J.rain(4000, '🎉'); }
   }
   // every button gets a little click
@@ -614,15 +653,16 @@
   // ---------- messages ----------
   function onMsg(m) {
     switch (m.type) {
-      case 'welcome': myId = m.id; break;
+      case 'welcome': myId = m.id; loadDialogues(); break;
+      case 'quick': showQuick(m); break;
       case 'kicked':
-        room = null; myId = null; lastState = null; closeMenu();
+        room = null; myId = null; lastState = null; closeMenu(); closeQuick();
         if (ws) ws.close();
         show('landing'); $('#landing-error').textContent = EN.errors.kicked; break;
       case 'room': {
         const prev = lastState;
         room = m.room; lastState = room.state;
-        if (room.state !== prev) onState(prev);
+        if (room.state !== prev) { onState(prev); paintQuick(); }
         if (menuTarget && (room.hostId !== myId || !room.players.some((q) => q.id === menuTarget))) closeMenu();
         if (room.state !== prev) timerMax = 0;
         if (room.state === 'lobby') { show('lobby'); renderLobby(); setOverlay(null); hint = []; }
